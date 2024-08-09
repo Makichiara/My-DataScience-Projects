@@ -1,4 +1,4 @@
-**Master in Data Science and Artificial Intelligence Projects**
+**Master in Data Science and Artificial Intelligence Projects**\*
 Welcome to my repository! This space collects a series of projects that me and my working team have developed during our academic journey, addressing various relevant topics in the fields of data science and artificial intelligence.
 
 **Description**
