@@ -15,15 +15,26 @@ All projects and their documentation are in Italian. The programming languages u
 
 **Projects**
 
-*1. Premi Nobel: Esplorazione nello spazio e nel tempo:* Exploratory analysis on an open-source dataset containing Nobel Prize winners from 1901 onwards.
+*- Premi Nobel: Esplorazione nello spazio e nel tempo:* Exploratory analysis on an open-source dataset containing Nobel Prize winners from 1901 onwards.
 
-*2.Fashon MNIST Dataset:* Multiclass classification using the Fashion MNIST dataset, which involves classifying clothing items based on image recognition using neural networks.
+*- Siti patrimonio dell'Unesco:* a detailed analysis of UNESCO World Heritage Sites using Python's pandas library. It includes data preparation, exploratory analysis, and geospatial visualization to uncover patterns in the distribution and categorization of these globally significant sites. 
 
-*3.Sviluppo di un Software per la Gestione delle Emissioni di Pagamento dell'IRAP:* Development of a software application designed to manage the issuance and processing of IRAP (Regional Tax on Productive Activities) payments.
+*- Siti patrimonio dell'Unesco:* a detailed analysis of UNESCO World Heritage Sites using Python's pandas library. It includes data preparation, exploratory analysis, and geospatial visualization to uncover patterns in the distribution and categorization of these globally significant sites. 
 
-*4.Analisi sulla qualità dell'acqua:* Analysis of a classification problem based on the study of chemical properties of water using decision trees, Random Forest and Boosting.
+*- Fashon MNIST Dataset:* Multiclass classification using the Fashion MNIST dataset, which involves classifying clothing items based on image recognition using neural networks.
 
-*5.Clustering sull'olio d' oliva italiano:* Using the chemical and physical properties of Italian olive oil to determine their provenance in Italian regions (K-Means, K-Medods, agglomerative methods, LDA, GMM)
+*- Sviluppo di un Software per la Gestione delle Emissioni di Pagamento dell'IRAP:* Development of a software application designed to manage the issuance and processing of IRAP (Regional Tax on Productive Activities) payments.
+
+*- Analisi sulla qualità dell'acqua:* Analysis of a classification problem based on the study of chemical properties of water using decision trees, Random Forest and Boosting.
+
+*- Previsione a 10 anni dello spopolamento delle città italiane:* Investigation of the main features that could result in the depopulation of municipalities in 10 years,
+starting from selected areas of an Italian government initiative, the National Strategy for Inner Areas (SNAI). (Algorithms: Random Forest, Elastic Search, Neural Network and Gradient Boosting Machine, using different methods of sampling, feature importance analysis and partial plots).
+
+*- Clustering sull'olio d' oliva italiano:* Using the chemical and physical properties of Italian olive oil to determine their provenance in Italian regions (K-Means, K-Medods, agglomerative methods, LDA, GMM)
+
+
+
+
 
 
 **Note:** The new projects will be progressively updated.
