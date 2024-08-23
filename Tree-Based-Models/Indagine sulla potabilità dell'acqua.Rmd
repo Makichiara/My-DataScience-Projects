@@ -1,0 +1,384 @@
+---
+title: "Indagine sulla Potabilità dell'acqua"
+author: "M.Calasso, D.Cristofori, M.Manoccio, G.Tripicchio"
+date: "2024-06-26"
+output: pdf_document
+---
+
+In questa presentazione vogliamo analizzare un problema di classificazione utilizzando gli alberi decisionali. Il dataset che utilizzeremo, chiamato "Water Potability", è un file open source disponibile su Kaggle composto da 3276 righe e 10 colonne contenente informazioni sulle diverse caratteristiche chimiche dell'acqua (pH, Durezza, Solidi sospesi totali, Clorammine, Solfato, Conducibilità, Carbonio organico, Trihalometani, Torbidità, Potabilità). Lo scopo principale del progetto è quello di valutare la potabilità dell'acqua in base alle sue caratteristiche chimiche, pertanto la variabile target binomiale sarà la Potabilità . Verrà effettuato il confronto tra i risultati ottenuti sulla previsione della potabilità dell'acqua applicando 3 modelli: modello CART, random forest e boosting.
+
+
+
+```{r}
+ #import librerie
+library(tidyverse)
+library(randomForest)
+library(dplyr)
+library(caret)
+library(ggplot2)
+library(rpart)
+library(gbm)
+library(DataExplorer)
+
+#insert dati
+water <- read_csv("C:/Users/user/Desktop/Tree based models/water_potability.csv")
+#esplorazione dati
+dim(water)
+print(sum(is.na(water)))
+data=na.omit(water)
+dim(data)
+head(data)
+plot_intro(water, 
+           title =" Qualità del Dataset", 
+           ggtheme =theme_light(), 
+           theme_config=theme(legend.position="bottom"))
+plot_missing(water, 
+             group = c("OK" = 0.0, "Buono" = 0.1, "KO" = 1.0),
+             missing_only = F,
+             title= "Missing Data",
+             ggtheme = theme_bw(),
+             theme_config = list(legend.position = c("top")) )
+
+```
+
+Dall' analisi sulla qualità del dataset si osserva che il 4.4% dei valori è mancante. Dopo una serie di valutazioni si è deciso di rimuovere le righe con osservazioni mancanti, riducendo così il dataset a 2011 osservazioni. I grafici seguenti mostrano le distribuzioni di tutte le variabili che evidenziano una distribuzione normale.
+
+```{r}
+par(mfrow=c(2,4))
+attach(data)
+hist(ph, freq=F, col="red", xlab="ph", main="")
+hist(Hardness, freq=F, col="red", xlab="Hardness", main="")
+hist(Solids, freq=F, col="red", xlab="Solids", main="")
+hist(Chloramines, freq=F, col="red", xlab="Chloramines", main="")
+hist(Sulfate, freq=F, col="red", xlab="Sulfate", main="")
+hist(Conductivity, freq=F, col="red", xlab="Conductivity", main="")
+hist(Organic_carbon, freq=F, col="red", xlab="Organic_carbon", main="")
+hist(Trihalomethanes, freq=F, col="red", xlab="Trihalomethanes", main="")
+hist(Turbidity, freq=F, col="red", xlab="Turbidity", main="")
+```
+
+## MODELLING
+ 
+
+##Decision tree
+
+
+Un albero decisionale è un algoritmo di apprendimento supervisionato utilizzato sia per tecniche di classificazione che di regressione. Si compone di una struttura ad albero gerarchica, che consiste di un nodo radice, di rami, nodi interni e nodi foglia. Un albero decisionale inizia con un nodo radice, che non ha rami in entrata, mentre i rami in uscita alimentano i nodi interni, noti anche come nodi decisionali. Sulla base delle funzionalità disponibili, entrambi i tipi di nodi conducono valutazioni per formare sottoinsiemi che sono rappresentati da nodi foglia o nodi terminali. I nodi foglia rappresentano tutti i possibili risultati all'interno del set di dati.
+L'apprendimento dell'albero decisionale prevede l'utilizzo di una strategia che consiste nella ricerca e identificazione di punti di divisione ottimali all'interno di un albero. Questo processo di suddivisione viene ripetuto in modo ricorsivo dall'alto verso il basso fino a quando tutti, o la maggior parte, record sono stati classificati in etichette di classe specifiche. Il fatto che tutti i punti dati siano classificati o meno come insiemi omogenei dipende in gran parte dalla complessità dell'albero decisionale. Gli alberi più piccoli sono più facilmente in grado di raggiungere nodi foglia semplici,tuttavia, man mano che un albero cresce di dimensioni, diventa sempre più difficile mantenere questa semplicità che di solito si traduce in una quantità insufficiente dei dati all'interno di un determinato albero secondario. Questo fenomeno è noto come frammentazione dei dati e spesso può portare ad un overfitting. Gli alberi decisionali prediligono strutture piccole, il che è coerente con il principio di parsimonia del rasoio di Occam ossia, "non moltiplicare gli elementi più del necessario". Per ridurre la complessità e prevenire l'overfitting, viene solitamente utilizzata la potatura; questo processo rimuove i rami con caratteristiche di bassa importanza.
+
+##Parametri di training e test
+
+
+Per l' analisi splittiamo il dataset in test e train prendendo il 70% del dataset di test e il 30% di trai. Si setta il seed in modo da garantire la riproducibilità dei dati. Inoltre si fattorizzano i dataset di test e train per condurci a un problema di classificazione.
+
+```{r}
+set.seed(11)
+
+trainIndex_0 <- createDataPartition(data$Potability, p = .7,list = FALSE,times = 1)
+
+imbal_train_1 <- data[ trainIndex_0,]
+imbal_test_1 <- data[ -trainIndex_0,]
+
+table(data$Potability)
+
+table(imbal_train_1$Potability)
+table(imbal_test_1$Potability)
+
+imbal_train_1$Potability <- as.factor(imbal_train_1$Potability)
+levels(imbal_train_1$Potability) <- c("NO", "YES")
+
+imbal_test_1$Potability <- as.factor(imbal_test_1$Potability)
+levels(imbal_test_1$Potability) <- c("NO", "YES")
+```
+
+i DATASET HANNO 836 e 572 VALIRI PR IL TEST E 364 e 239 PER IL TRAIN
+
+
+##CART
+
+
+Come primo usecase si applica il modello di decision tree utilizzando la libreria rpart che costituisce un metodo per la regressione e la classificazione con alberi decisionali. Questa libreria usa come algoritmo CART, il cui obiettivo è suddividere ricorsivamente il dataset di train in sottoinsiemi omogenei in modo da massimizzare la purezza delle classi (problemi di classificazione) o minimizzare l’errore nella previsione della variabile target, (problema di regressione).
+
+Per prima cosa si imposta il seed per garantire la riproducibilità dei risultati. 
+Il seed controlla la generazione di numeri casuali, quindi impostandolo su un valore specifico, si assicura che i risultati del modello saranno gli stessi ogni volta che il codice viene eseguito. 
+
+```{r}
+set.seed(11)
+#method = "class": Indica che si tratta di un problema di classificazione.
+#control contiene gli argomenti di controllo per il processo di addestramento.
+#specifica il numero minimo di osservazioni richieste per dividere un nodo
+#cp=0 indica che non viene effettuata alcuna potatura dell'albero durante la costruzione iniziale.
+
+Tree1 <- rpart(Potability ~ ., data=imbal_train_1 ,method = "class", 
+               control=rpart.control(minsplit=5,cp=0))
+rpart.plot::rpart.plot(Tree1)
+```
+
+Come si vede dall'immagine l'albero è troppo complesso e include rumore e dettagli irrilevanti. Un albero decisionale eccessivamente complesso può avere prestazioni scadenti su nuovi dati poiché memorizza le caratteristiche specifiche del set di addestramento anziché apprendere pattern generali. 
+Si utilizza la tecnica di potatura per "tagliare i rami degli alberi" per ridurne la complessità, per contrastare il potenziale overfitting e semplificare il nostro modello. Attraverso il parametro di complessità (CP), si controlla la dimensione dell'albero decisionale migliorandone le prestazioni. Utilizzando la funzione in R printcp, si identifica il CP ottimale che ominimizza l'errore di classificazione sul set di dati di addestramento identificando il numero di split a cui fermarsi . L'albero viene potato in base a questo valore di cp. Per decidere quanle ramo tagliare si utilizza cp e si prende il ramo dove l' errore è minimizzato. In questo caso il cp individuato è 0.0087 che permetterà di tagliare al 15 esimo ramo.
+
+
+```{r}
+rpart::plotcp(Tree1)
+```
+
+L'albero potato è più semplice e meno suscettibile all'overfitting rispetto all'albero non potato.
+
+```{r}
+Tree1p <- prune(Tree1, cp = Tree1$cptable[which.min(Tree1$cptable[,"xerror"]),"CP"])
+rpart.plot::rpart.plot(Tree1p)
+
+cp = Tree1$cptable[which.min(Tree1$cptable[,"xerror"]),"CP"]
+print(cp)
+
+
+tree_size <- Tree1$cptable[which.min(Tree1$cptable[,"xerror"]),"nsplit"] + 1
+print(tree_size)
+```
+
+Per vedere le differenze si calcolano le metriche per i 2 alberi, Nelle successive chunk si osservano le matrici di confusione calcolate per il train e test set dell' albero non potato. Si può vedere l' enorme differenza nelle performances indicando un evidente overfitting per l'albero così costuito. Questo significa che il modello non è riuscito ad apprendere abbastanza dai dati di addestramento e non è in grado di generalizzare bene sui dati che non ha mai visto prima, come quelli del test set.
+ 
+```{r}
+#accuracy sul train Tree non potato
+predettoP.tr <- predict(Tree1, imbal_train_1, type = "class")
+table(predicted = predettoP.tr, actual = imbal_train_1$Potability)
+mean(imbal_train_1$Potability == predettoP.tr)
+
+#accuracy sul test set per Tree non potato
+predettoP.te <- predict(Tree1, imbal_test_1,  type = "class")
+table(predicted = predettoP.te, actual = imbal_test_1$Potability)
+mean(imbal_test_1$Potability == predettoP.te)
+```
+
+Per quanto riguarda l'albero potato si osserva che, nonostante un lieve miglioramento per l' accuracy del 62% sul test set, la differenza tra accuracy calcolata tra train e test set presenda ancora una discordanza, che lascia intendere la presenza di un lieve overfitting.
+
+```{r}
+#Albero potato train accuracy
+predettoP.tr <- predict(Tree1p,  type = "class", newdata = imbal_train_1)
+table(predicted = predettoP.tr, actual = imbal_train_1$Potability)
+
+mean(imbal_train_1$Potability == predettoP.tr)
+```
+
+```{r}
+#Albero potato test accuracy
+predettoP.te <- predict(Tree1p,  type = "class", newdata = imbal_test_1)
+
+confusionMatrix( predettoP.te, imbal_test_1$Potability )
+```
+
+
+## Random forest
+
+Il Random Forest è un algoritmo di apprendimento automatico utilizzato sia per problemi di regressione che di classificazione.
+Combina diversi alberi decisionali in una "foresta", ciascuno dei quali viene addestrato su un sottoinsieme casuale dei dati di addestramento. L'output finale del modello è la media delle previsioni di tutti gli alberi (per la regressione) o un voto a maggioranza (per la classificazione). Ogni albero decisionale nel Random Forest viene addestrato su un campione bootstrap del dataset di training, il che significa che ciascun albero viene addestrato su un sottoinsieme casuale dei dati selezionato con sostituzione.
+
+Durante la costruzione di ciascun albero decisionale, viene selezionato un sottoinsieme casuale delle variabili predittive per trovare la migliore divisione in ogni nodo dell'albero. Questo aiuta a rendere i singoli alberi meno correlati tra loro e quindi a ridurre la varianza complessiva del modello.
+
+Il Random Forest è meno incline all'overfitting rispetto agli alberi decisionali singoli, grazie all'uso di tecniche come il bagging e il bootstrap. Il Random Forest introduce un’ulteriore fonte di casualità considerando per ogni split un sottoinsieme casuale di caratteristiche. Questo lo rende più adatto all'applicazione su una vasta gamma di dataset senza la necessità di complesse ottimizzazioni dei parametri.
+
+Il Random Forest non richiede la normalizzazione o la standardizzazione delle variabili e può gestire sia variabili categoriche che numeriche. È noto per la sua robustezza, flessibilità e ottime prestazioni su molti tipi di dati e problemi di apprendimento automatico. È ampiamente utilizzato in molte applicazioni, tra cui classificazione, regressione e anche per l'estrazione di caratteristiche.
+
+-   **Vantaggi RF**:
+
+    -   Buona gestione di grandi dataset con molte variabili.
+
+    -   Non richiede molta messa a punto dei parametri.
+
+    -   Può fornire una stima dell'importanza delle variabili.
+
+-   **Limitazioni**:
+
+    -   Potrebbe non essere ottimale per dati altamente strutturati o con relazioni complesse tra le variabili.
+    -   Potrebbe non adattarsi bene a problemi di classificazione binaria sbilanciata.
+    
+Facciamo un primo tentativo applicando il modello alle variabili di train tramite l'utilizzo della libreria randomForest.
+L'output fornisce dettagli sui parametri utilizzati nel modello. 
+
+In questo caso, abbiamo impostato un valore di 1000 alberi pari alla seguente formula 10* numero parametri. Si evidenzia come ogni albero è costruito utilizzando un campione bootstrap del dataset di addestramento. 
+Non modificando i valori di default ed essendo la variabile "Potability" una variabile categoriale, il valore di mtry sara la radice quadrata di 10 ovvero pari a 3. 
+
+```{r}
+# random forest su TUTTI I DATI tenendo l'mtry al valore di default 
+set.seed(11)
+Model.rf <- randomForest(factor(Potability)~.,data=imbal_train_1, ntree=1000)
+Model.rf
+# Calcol l'accuracy OOB
+oob_error_rate <- Model.rf$err.rate[1000, "OOB"]
+oob_accuracy <- 1 - oob_error_rate
+print(paste("OOB Accuracy:", round(oob_accuracy, 4)))
+
+p_RF <- predict(Model.rf,imbal_test_1)
+confusionMatrix(p_RF,imbal_test_1$Potability)
+```
+
+A differenza dei problemi di regressione, l'output ci restituisce le variabili chiavi per il nostro problema di regressione, ovvero l'errore OOB e la matrice di confusione. In particolare l'OOB viene calcolato confrontando le predizioni di OOB aggregate con i valori reali delle osservazioni ovvero la proporzione delle predizioni OOB errate. Anche la matrice di confusione viene costruita sulla base del voto di maggioranza delle predizioni.
+Le differenze tra le due matrici di confusione derivano principalmente dal fatto che le predizioni OOB sono basate su un sottoinsieme di alberi, mentre le predizioni del test set utilizzano tutti gli alberi. Questo porta a una maggiore varianza nelle predizioni OOB, che possono risultare in una matrice di confusione leggermente diversa rispetto a quella ottenuta dal test set. Entrambi i metodi forniscono informazioni utili sulle prestazioni del modello, ma la matrice di confusione del test set tende ad essere una stima più affidabile se il test set è rappresentativo è sufficientemente grande.
+In queto caso l' accuracy sul train è 0.68 leggeremente più bassa rispetto a quella calcolata sulla base del voto di maggioranza delle predizioni.
+Si osserva inoltre che il valore dell'information rate, ovvero il tasso di previsione corretto se tutte le osservazioni fossero assegnate alla classe prevalente (NO in questo caso) è pari al 60.36%. Tale valore, letto in combinazione con P-Value [Acc > NIR] molto basso indica che l'accuratezza del modello è significativamente migliore rispetto al No Information Rate. 
+La specificità per la classe YES è bassa (41.00%), al contrario della sensibilità. indicando che il modello non è molto efficace nel identificare correttamente le osservazioni YES. Questo suggerisce che il modello è sbilanciato verso la predizione della classe NO.
+
+Si procede ad effetturare il tuning delle variabili al fine di migliorarne l'accuratezza.
+
+##Out of bag error e mtry
+
+Due parametri importanti per ottimizzare il modello sono oob e mtry.
+
+## Effetto di mtry
+
+Il parametro mtry controlla il numero di variabili casuali considerate in ciascuna divisione del nodo durante la costruzione degli alberi nel Random Forest. Modificando il valore di mtry, si influenza la complessità degli alberi e la correlazione tra di essi.
+
+Valori più bassi di mtry: Riducono la correlazione tra gli alberi, poiché ogni albero utilizza un numero minore di variabili per ciascuna divisione. Questo aumenta la variabilità tra gli alberi e può ridurre il rischio di overfitting, ma aumenta la varianza del modello complessivo.
+
+Valori più alti di mtry: Aumentano la correlazione tra gli alberi, poiché ogni albero ha accesso a un numero maggiore di variabili per ciascuna divisione. Questo riduce la variabilità tra gli alberi e la varianza del modello complessivo, ma può aumentare il rischio di overfitting se il valore è troppo alto.
+
+In generale, i valori tipici di mtry per problemi di classificazione sono di solito la radice quadrata del numero totale di variabili nel dataset o una frazione di esso. Tuttavia, è consigliabile effettuare un'ottimizzazione dei parametri per determinare il valore ottimale di mtry da utilizzare. Inoltre, se mtry è piccolo, è opportuno incrementare il numero di alberi, poiché risultano meno correlati. Un numero elevato di alberi stabilizza la misura di variable importance, ma è importante non usare valori troppo alti per evitare l'overfitting.
+
+Quando si imposta mtry su un valore specifico, durante la costruzione di ciascun albero verrà selezionato casualmente un numero di variabili dall'insieme completo di variabili predittive disponibili. Queste variabili saranno considerate per scegliere il miglior split in ogni nodo dell'albero. Esistono diversi metodi per valutare il valore ottimale di mtry, solitamente trovato attraverso tecniche di ottimizzazione. Ad esempio, applicando la funzione tuneRF al nostro dataset di train, possiamo ottenere il valore ottimale di mtry che, in questo caso, è 3.
+
+Durante l'esecuzione della funzione tuneRF, viene prodotto un grafico che mostra come l'errore OOB (out-of-bag) varia al variare di mtry. Il valore ottimale di mtry corrisponde al punto in cui l'errore OOB è minimo. Nel nostro caso, il valore di mtry che corrisponde all'errore OOB più basso è 3.
+
+```{r}
+# MTRY (si prende quello con l'oob error più basso, cioè mtry=3)
+set.seed(11)
+B=1000
+my.mtry <- tuneRF(data[,-10],factor(data$Potability), ntreeTry=B,
+                  stepFactor=1.5,improve=0.0001, trace=TRUE, plot=TRUE)
+```
+
+Ma cos è l outoof bag?
+L' errore out-of-bag (OOB), è l'errore medio per ciascun campione bootstrap calcolato utilizzando le previsioni degli alberi che non contengono quel campione nel rispettivo campione bootstrap.
+
+Misurare l'errore OOB per diversi valori di mtry consente di valutare come la variazione del numero di variabili considerate in ciascuna divisione influisce sull'accuratezza del modello. Questo aiuta a trovare il valore ottimale di mtry che minimizza l'errore OOB e, presumibilmente, migliora le prestazioni del modello sui dati di test.  In altre parole, per ogni osservazione nel set di addestramento, viene registrato se è stata inclusa o meno nel sottoinsieme utilizzato per addestrare il modello. Quindi, l'errore OOB è calcolato utilizzando solo quelle osservazioni che non sono state incluse nel sottoinsieme di addestramento per il modello in questione. In questo caso OOB risulta minimizzato per un numero di alberi circa 600.
+
+```{r}
+#Estraiamo i valori dell'OOB error per ogni numero di alberi
+
+oob_error <- Model.rf$err.rate[,1]
+# Estraiamo il numero di alberi corrispondenti
+num_trees <- 1:nrow(Model.rf$err.rate)
+min_oob_index <- which.min(oob_error)
+optimal_num_trees <- num_trees[min_oob_index]
+
+# Plot dell'OOB error in funzione del numero di alberi
+plot(num_trees, oob_error, type="l", col="#A20045", 
+     xlab="Numero di alberi", ylab="Out-of-Bag Error",
+     main="Random Forest - Out-of-Bag Error vs Numero di Alberi")
+
+# Aggiungiamo una linea verticale ed un punto al numero di alberi che minimizza l'OOB error
+abline(v = optimal_num_trees, col="blue", lty=2)
+points(optimal_num_trees, oob_error[min_oob_index], col="red", pch=19)
+legend("topright", legend=c("OOB Error", "Min OOB Error"),
+       col=c("#A20045", "red"), lty=c(1, NA), pch=c(NA, 19))
+
+print(optimal_num_trees) 
+print(oob_error[min_oob_index])
+
+```
+
+```{r}
+# random forest su TUTTI I DATI tenendo l'mtry al valore di default 
+
+Model.rf1 <- randomForest(factor(Potability)~.,data=imbal_train_1, ntree=599,mtry=3)
+Model.rf1
+# Calcol l'accuracy OOB
+oob_error_rate1 <- Model.rf1$err.rate[599, "OOB"]
+oob_accuracy1 <- 1 - oob_error_rate1
+print(paste("OOB Accuracy:", round(oob_accuracy1, 4)))
+
+p_RF1 <- predict(Model.rf1,imbal_test_1)
+confusionMatrix(p_RF,imbal_test_1$Potability)
+```
+
+Si ottengono valori simili al primo esperimento.
+
+
+## Feature importance
+
+
+il primo grafico di un tipo di visualizzazione che mostra la features importance in un modello di apprendimento automatico, in particolare nei modelli basati su alberi come il Random Forest.
+
+L'importanza delle variabili può essere valutata misurando quanto la loro presenza o assenza nelle divisioni dell'albero migliora la capacità predittiva complessiva del modello. Applicando le funzioni del pacchetto random forest possiamo osservare delle misure che definicono le features piu importanti.
+
+
+Il Gini impurity è una misura di disordine o impurità all'interno di un insieme di dati. In un contesto di classificazione binaria, il Gini impurity di un nodo misura quanto spesso un elemento scelto casualmente dall'insieme verrà etichettato in modo scorretto se venisse etichettato casualmente secondo la distribuzione delle etichette nel nodo. Un valore più basso del Gini impurity indica una maggiore purezza del nodo, cioè una maggiore omogeneità delle etichette all'interno del nodo.
+
+Il "mean decrease Gini" è invece una misura dell'importanza delle variabili, che quantifica quanto la suddivisione delle variabili nelle divisioni degli alberi riduca il Gini impurity medio dei nodi. In altre parole, misura quanto le variabili contribuiscono alla purezza complessiva dei nodi dell'albero e misura il miglioramento della purezza dei nodi dell'albero.
+
+
+```{r}
+#Variable Importance
+varImpPlot(Model.rf1, main="Variable importance", pch = 19, color="#A20045")
+```
+
+Sulfate, ph, e Hardness risultano essere le variabili più importanti per il modello. Questo significa che queste variabili forniscono il maggior contributo alla riduzione dell'impurità e quindi alla predizione accurata della variabile di risposta.
+
+
+
+
+##Boosting
+
+Il boosting è un'altra tecnica popolare nell'apprendimento automatico, utilizzata per migliorare le prestazioni dei modelli predittivi. Il boosting addestra una serie di modelli in modo sequenziale e ogni modello successivo cerca di correggere gli errori dei modelli precedenti.Presenta le seguenti caratteristiche:
+
+1.  **Addestramento sequenziale**: I modelli vengono addestrati uno alla volta, e ogni modello successivo presta maggiore attenzione agli esempi che sono stati classificati erroneamente dai modelli precedenti.
+
+2.  **Pesi sugli esempi**: Durante l'addestramento di ogni modello, gli esempi vengono assegnati a pesi, e gli esempi classificati erroneamente ricevono un peso maggiore per concentrare l'attenzione sui casi difficili.
+
+3.  **Combina modelli weak in un modello forte**: Anche se ogni modello individuale nel boosting è debole (ovvero, ha prestazioni solo leggermente migliori di un modello casuale), combinandoli insieme in modo intelligente, il modello risultante può essere molto potente.
+
+Gli algoritmi di boosting più comuni includono AdaBoost (Adaptive Boosting), Gradient Boosting e XGBoost 
+
+-   **Vantaggi**:
+
+  -   Solitamente produce modelli più potenti, poiché ciascun modello successivo corregge gli errori dei modelli precedenti.
+
+    -   Funziona bene con variabili categoriali e numeriche.
+
+    -   Può ottenere prestazioni migliori rispetto a Random Forest su problemi più complessi.
+
+GIOVANNI:
+Il boosting: modello di machine learning per l'apprendimento automatico esamble. Il boosting addestra una serie di alberi in modo sequenziale, addestrati uno all volta, e ogni albero successivo cerca di correggere gli errori dei modelli precedenti.\\
+A differenza del Bagging o del Random forest, gli alberi del Boosting sono corti con alto bias e bassa varianza. 
+
+-   **Vantaggi**:
+
+  -   Solitamente produce modelli più potenti, poiché ciascun modello successivo corregge gli errori dei modelli precedenti.
+
+    -   Funziona bene con variabili categoriali e numeriche.
+
+    -   Può ottenere prestazioni migliori rispetto a Random Forest su problemi più complessi.
+
+Il boosting è ampiamente utilizzato perché è molto efficace nell'affrontare una vasta gamma di problemi di apprendimento automatico e può produrre modelli molto accurati. Poiché l'addestramento dei modelli è sequenziale, il boosting può essere più sensibile al rumore nei dati di addestramento rispetto ad altri metodi meno potenti come il bagging.
+
+
+```{r warning=FALSE}
+set.seed(11)
+model_gbm_2 = gbm(Potability ~.,
+              data = imbal_train_1,
+              distribution = "multinomial",
+              shrinkage = 0.3,
+              interaction.depth = 3,
+              n.trees = 150)
+model_gbm_2
+```
+
+
+Feature importance
+
+```{r warning=TRUE}
+library(vip)
+vip::vip(model_gbm_2)+theme_bw()
+```
+
+Predizione sui dati di test
+```{r}
+pred_test_2 = predict.gbm(object = model_gbm_2,
+                   newdata = imbal_test_1,
+                   n.trees = 150,           # 500 tress to be built
+                   type = "response")
+
+class_names_2 = colnames(pred_test_2)[apply(pred_test_2, 1, which.max)]
+result = data.frame(imbal_test_1$Potability, class_names_2)
+conf_mat_2 = confusionMatrix(imbal_test_1$Potability, as.factor(class_names_2))
+print(conf_mat_2)
+```
