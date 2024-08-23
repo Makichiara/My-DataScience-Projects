@@ -21,5 +21,9 @@ All projects and their documentation are in Italian. The programming languages u
 
 *3.Sviluppo di un Software per la Gestione delle Emissioni di Pagamento dell'IRAP:* Development of a software application designed to manage the issuance and processing of IRAP (Regional Tax on Productive Activities) payments.
 
+*4.Analisi sulla qualità dell'acqua:* Analysis of a classification problem based on the study of chemical properties of water using decision trees, Random Forest and Boosting.
+
+*5.Clustering sull'olio d' oliva italiano:* Using the chemical and physical properties of Italian olive oil to determine their provenance in Italian regions (K-Means, K-Medods, agglomerative methods, LDA, GMM)
+
 
 **Note:** The new projects will be progressively updated.
