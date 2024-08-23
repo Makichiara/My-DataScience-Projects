@@ -1,0 +1,877 @@
+---
+title: "Clustering sull'olio d'oliva italiano"
+author: "Giovanni Tripicchio, Mariachiara Manoccio, Marta calasso, Daniele Cristofori"
+output: pdf_document
+date: "2024-03-19"
+editor_options: 
+  markdown: 
+    wrap: sentence
+---
+
+# About Dataset
+
+Questo lavoro si basa sulla descrizione di modelli di clustering applicati al dataset open source "olive" presente nel pacchetto "pgmm" del software R.
+In questo dataset sono riportati i valori della composizione percentuale di otto acidi grassi rilevati nella frazione lipidica di un campione di oli d'oliva italiani.
+Il dataset si compone di 572 osservazioni distribuite in 10 colonne.
+La prima colonna riguarda la zona: 1) sud italia ; 2) sardegna; 3) nord italia.
+La seconda colonna riguarda l'area: 1) nord puglia; 2) calabria; 3) sud puglia; 4) sicilia; 5) entroterra sardegna; 6) costa sardegna; 7) est liguria; 8) ovest ligura; 9) umbria.
+Le prime due colonne, Region e Area che sono in origine variabili categoriche, ma sono etichettate in numeriche per facilità di manipolazione.
+Le altre colonne sono variabili numeriche riferite acidi grassi analizzati negli oli osservati: *palmitic, palmitoleic, stearic, oleic, linoleic,linolenic, arachidic, eicosenoic*.
+Nelle chunk di codice successive, si importano le liberie e si procede all' esporazione dei dati.
+
+```{r message=FALSE, warning=FALSE}
+# import librerie
+library(dplyr)
+library(pgmm)
+library(MASS)
+library(DataExplorer)
+library(caret)
+library(FactoMineR)
+library(factoextra)
+library(mixtools)
+library(plyr)
+library(caret)
+library(tidyselect)
+library(forcats)
+library(janitor)
+library(gdata)
+library(tools)
+library(mclust)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(tibble)
+library(readr)
+library(stringr)
+library(tidyverse)
+library(clustertend)
+library(stats)
+library(fpc)
+library(clValid)
+library(NbClust)
+#import dataset
+data(olive)
+#vizializzazione prime righe del dataset
+head(olive)
+```
+
+Dall' analisi sulla qualità del dataset si osserva che:
+
+\- il dataset non ha osservazioni mancati;
+
+\- le variabili sono tutte continue.
+
+```{r message=FALSE, warning=FALSE}
+attach(olive)
+plot_intro(olive, title ="Data Quality" )
+```
+
+Dal dataset iniziale vengono rimosse le variabili target "Area" e "Region" al fine di applicare tutte le tecniche che saranno approfondite nei paragrafi successivi.
+Di seguito sono riportate le statistiche descrittive relative alle variabili .
+
+```{r message=FALSE, warning=FALSE}
+#statistiche descrittive variabili
+#rimozione variabili target Region e Area
+print(summary(subset(olive, select = -c( Region, Area))))
+```
+
+Dall'analisi sulle distribuzioni si osserva un andamento tendenzialmente normale di quasi tutte le variabili, ad eccezione dgli acidi grassi oleico, linoleico, palmeitoleico, che hanno una distribuzione più asimmetrica.
+
+```{r}
+#Distribuzioni sulle variabili
+par(mfrow=c(2,4))
+hist(Palmitic, freq=F, col="red", xlab="Palmitic", main="")
+hist(Palmitoleic, freq=F, col="red", xlab="Palmitoleic", main="")
+hist(Stearic, freq=F, col="red", xlab="Stearic", main="")
+hist(Oleic, freq=F, col="red", xlab="Oleic", main="")
+hist(Linoleic, freq=F, col="red", xlab="Linoleic", main="")
+hist(Linolenic, freq=F, col="red", xlab="Linolenic", main="")
+hist(Arachidic, freq=F, col="red", xlab="Arachidic", main="")
+hist(Eicosenoic, freq=F, col="red", xlab="Eicosenoic", main="")
+```
+
+\
+Le variabili vengono standardizzate utilizzando la funzione "scale", garantendo così che ciascuna variabile abbia lo stesso peso nella determinazione della distanza tra le osservazioni.
+Da questo punto in poi nel testo, il dataset con le variabili standardizzate (denominato DB2S) verrà utilizzato per tutti i modelli e le tecniche che richiedono la standardizzazione delle variabili.
+
+Dall'analisi del pairplot effettuato sulle variabili emerge la presenza di cluster distinti.
+In particolare, l'acido eicosenoico sembra formare, a prima vista, due cluster in relazione alle altre variabili.
+Un ragionamento simile può essere applicato alle variabili Linolenico e Arachidico.
+
+```{r}
+#standardizzazione delle variabili
+DB2S <- scale(subset(olive, select = -c( Region, Area)))
+#pairplot
+pairs(DB2S, col="red", pch=20, cex=0.5) 
+ title("Distribuzione dei cluster in funzione delle variabili", line= 3.35)
+```
+
+I due grafici successivi mostrano la distribuzione degli oli per macroaree geografiche e aree territoriali, rispettivamente.
+Dal primo si evince una forte prevalenza della provenienza del Sud Italia, del 57% circa, seguita da Nord Italia (26%) e Sardegna(17%).
+La zona con la più alta produzione di olio è il sud della Puglia, con una percentuale molto alta del 36%, seguita dalle regioni successive con percentuali molto più basse.
+
+```{r message=FALSE, warning=FALSE}
+#DISTRIBUZIONE PER MACROAREE
+DBs <- data.frame(olive)
+osservArea <- table(DBs$Region)
+osservRegioni <- table(DBs$Area)
+osservAreadf <- as.data.frame(osservArea)
+colnames(osservAreadf) <- c("Area", "Osservazioni")
+osservRegionidf <- as.data.frame(osservRegioni)
+colnames(osservRegionidf) <- c("Regione", "Osservazioni")
+
+osservAreadf <- osservAreadf %>%
+  mutate(NomeArea = case_when(
+    Area == 1 ~ "Sud Italia",
+    Area == 2 ~ "Sardegna",
+    Area == 3 ~ "Nord Italia",
+    TRUE ~ as.character(Area)
+  ))
+
+# barplot utilizzando ggplot2
+barplotArea <- ggplot(osservAreadf, aes(x=NomeArea, y=Osservazioni, 
+                                        fill=as.factor(NomeArea))) +
+  geom_bar(stat="identity") +
+  geom_text(aes(label = paste0(round(Osservazioni / sum(Osservazioni) * 100, 1), "%")), 
+            position = position_stack(vjust = 0.5), color = "black", size = 3) +
+  labs(title="Numero di Osservazioni per Macroarea", x="Area", y="Numero di Osservazioni",
+       fill="Area") +
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(barplotArea)
+```
+
+```{r message=FALSE, warning=FALSE}
+
+#OSSERVAZIONI PER REGIONE
+# Aggiunge una colonna relativa al nome dell'area relativa al dataframe con i nomi delle regioni
+osservRegionidf <- osservRegionidf %>%
+  mutate(NomeRegione = case_when(
+    Regione == 1 ~ "Nord Puglia",
+    Regione == 2 ~ "Calabria",
+    Regione == 3 ~ "Sud Puglia",
+    Regione == 4 ~ "Sicilia",
+    Regione == 5 ~ "Entroterra Sardegna",
+    Regione == 6 ~ "Costa Sardegna",
+    Regione == 7 ~ "Est Ligura",
+    Regione == 8 ~ "Ovest Liguria",
+    Regione == 9 ~ "Umbria",
+    TRUE ~ as.character(Regione)
+  ))
+osservRegionidf
+#barplot
+barplotRegione <- ggplot(osservRegionidf, aes(x=NomeRegione, y=Osservazioni, fill=as.factor(NomeRegione))) +
+  geom_bar(stat="identity") +
+  geom_text(aes(label = paste0(round(Osservazioni / sum(Osservazioni) * 100, 1), "%")), 
+            position = position_stack(vjust = 0.5), color = "black", size = 3) +
+  labs(title="Numero di Osservazioni per Area geografica", x="Regione", y="Numero di Osservazioni", fill="Regione") +
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+print(barplotRegione)
+```
+
+Il boxplot seguente mostra la presenza di outliers ad eccezione delle variabili: eicosenoic, linolenic, oleic e palmitoleic.
+Da notare che le medie sono distribuite intorno allo zero perchè il grafico è stato costruito sui dati standardizzati per una migliore visualizzazione.
+
+```{r message=FALSE, warning=FALSE}
+#costruzione boxplot
+DB2S <- as.data.frame(DB2S)
+data_long <- gather(DB2S, key = "Caratteristiche", value = "Value")
+attach(data_long)
+
+ggplot(data_long, aes(x = Caratteristiche, y = Value, fill=Caratteristiche)) +
+  geom_boxplot() +
+  labs(x = "Caratteristiche", y = "Valore", title = "Box Plot delle Variabili")+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+# Principal component Analysis - PCA
+
+Si applica la funzione per l'analisi delle componenti principali (PCA) per avere informazioni sull' impatto delle variabili sul modello.
+La PCA è un metodo che viene spesso utilizzato nel caso di set di dati con un ingente numero di variabili per ridurne la dimensionalità, trasformando il dataset di partenza in un sistema più piccolo che contiene ancora la maggior parte delle informazioni originali.
+Le componenti principali sono nuove variabili costruite come combinazioni lineari o miscele delle variabili iniziali non correlate tra loro.
+Per tale analisi si applica la funzione PCA(), che effettua automaticamente lo scaling dei dati.
+Le componenti principali ottenute tramite PCA sono distribuite in base alla varianza dei dati originali.
+In altre parole, le prime componenti principali spiegano la massima variazione nei dati, mentre le successive spiegano via via sempre meno questa variazione.
+Questa distribuzione è determinata dagli autovalori associati a ciascuna componente principale.
+
+\newpage
+
+```{r message=FALSE, warning=FALSE}
+# funzione PCA
+res.pca <- PCA(olive, graph = FALSE)
+ #informazioni risultanti dall' applicazione della funzione PCA
+#calcolo autovalori
+eig.val <- get_eigenvalue(res.pca)
+eig.val
+```
+
+Con il calcolo degli autovalori è possibile determinare il numero di componenti principali misurando la variazione mantenuta da ogni componente principale (PC).
+I pesi (autovettori) vengono scelti in modo tale che il valore di un'unità campionaria su un asse non sia correlato al valore della stessa unità campionaria su un altro asse.
+Dall' output del calcolo degli autovalori si può notare che autovalore più alto presenta una varianza cumulative al 51.6%.
+La PCA cerca di inserire la massima informazione possibile nella componente 1.
+La seconda componente insieme alla prima formano il 70% della varianza cumulativa totale e così via per le successive componenti principali, come mostrato nello scree plot sottostante.
+
+```{r message=FALSE, warning=FALSE}
+#Screplot sulle PCA, metodo utilizzato per visualizzare le componenti principali.
+fviz_eig(res.pca, addlabels = TRUE, ylim = c(0, 55)) 
+```
+
+Se l' obiettivo è la riduzione dei dati, e ci si vuole concentrare su un numero limitato di componenti principali delle osservazioni, possiamo fermarci alla componente 5.
+Il seguente plot mostra il contributo in percentuale delle variabili nelle prime 5 componenti principali.
+
+```{r message=FALSE, warning=FALSE}
+# Contributo delle variabili 
+library("corrplot")
+var <- get_pca_var(res.pca)
+corrplot(var$contrib, is.corr=FALSE)
+```
+
+Un' altra rappresentazione indicativa delle componenti principali è il biplot, calcolato con il seguente script:
+
+```{r message=FALSE, warning=FALSE}
+#Biplot. La trasparenza varia in base al peso delle componenti.
+fviz_pca_var(res.pca, alpha.var = "contrib") 
+```
+
+Nel grafico gli assi x e y sono la componente principale 1 e 2, rispettivamente.\
+Ogni vettore corrisponde a una variabile e punta nella direzione in cui tale variabile è più fortemente correlata linearmente.
+La lunghezza della linea e la sua vicinanza al cerchio indicano quanto bene la variabile è rappresentata nel grafico.
+Inoltre, l'angolo ($\alpha$) tra i vettori è un'approssimazione della correlazione tra le variabili.
+In particolare:
+
+-   $\alpha <90^{\circ}$ le variabili sono correlate positivamente (nel grafico sono raggruppate insieme);
+
+-   $\alpha =90^{\circ}$, le variabili non sono correlate;
+
+-   $\alpha \sim 180^{\circ}$ indica che le variabili sono correlate negativamente e posizionate nei quadanti opposti;
+
+-   I vettori perpendicolari rappresentano variabili non correlate.
+
+In questo progetto, poichè il numero di variabili di interesse ai fini dell' applicazione dei successivi modelli di clustering è sostenibile, scegliamo di non applicare la PCA ma verranno utilizzate le variabili originali.
+
+# Cluster Analysis
+
+## **Cluster tendency**
+
+Prima di procedere ad applicare qualsiasi algoritmo di clusterizzazione al dataset, bisogna valutare la tendenza al clustering del dataset.
+Le principali metodologie per effettuare tale valutazione sono:
+
+1\.
+*metodo statistico:* hopkins statisticS;
+
+2\.
+*metodo grafico:* VAT.
+
+La statistica H di Hopkins è una misura della tendenza al clustering che assume valori tra [0, 1].
+Se assume valori vicino a zero indica dati che i dati possono essere clusterizzati, mentre se si aggirano intorno a 0.5 indica che i dati sono uniformemente distribuiti
+
+```{r message=FALSE, warning=FALSE}
+hop <- hopkins(DB2S,n=nrow(DB2S)-1)
+hop
+```
+
+Il valore ottenuto della statistica di Hopkins 0.17 è vicino a zero; questo indica che il dataset è "clusterizzabile".
+
+Il metodo grafico adotta l'algoritmo VAT.
+La misura di distanza adottata è quella euclidea.
+
+```{r message=FALSE, warning=FALSE}
+fviz_dist(dist(DB2S), show_labels = FALSE)
+```
+
+L'immagine della matrice di dissimilarità mostra la formazione di "quadrati" di dimensioni crescenti sulla diagonale, confermando ulteriormente la presenza di strutture a grappolo nel set di dati.
+
+## **Numero di cluster**
+
+Determinare il numero ottimale di cluster K è di fondamentale importanza per l' applicazione di diversi algoritmi di clutering e, a seconda dei metodi è possibile ottenere diverse soluzioni.
+Ai fini degli algoritmi che verranno presentati nei paragrafi successivi si utilizzano le seguenti metodologie per il rilevamento dei numeri di cluster:
+
+1.  *metodi diretti:* metodo del gomito e della silhouette;
+
+2.  *metodi statistici:* gap statistic.
+
+Applicheremo questi metodi al dataset olive considerando come modello di clustering il K-means.
+Il metodo del gomito misura approssimativamente la qualità del cluster attraverso un'analisi della sua coesione in termini di somma dei quadrati all'interno del cluster (WSS), che rappresenta una misura di coesione o compattezza dei cluster.
+La funzione fviz_nbclust utilizza la distanza euclidea di default come misura di dissimilarità.
+Nel grafico sottostante, si mostra la WSS infunzione del numero di cluster K.
+Si osserva come WSS diminuisce all'aumentare di K.
+Per K=5 si può osservare un "gomito" che indica come all'aumentare di K il valore di WSS non tende più a diminuire vertiginosamente.
+Pertanto K=5 risulta essere il numero di cluster ottimale per tale metodologia.
+
+```{r message=FALSE, warning=FALSE}
+fviz_nbclust(DB2S,#data scaled
+             kmeans,#function
+             method = "wss")+
+  labs(subtitle = "Elbow method")
+```
+
+Il grafico seguente mostra il numero di cluster individuato con metodo diretto della silhouette, rappresentato dal numero corrispondente al punto in cui il valore di "avarage silhouette" è massimo.
+Il numero di cluster "consigliato" risulta essere 7.
+
+```{r message=FALSE, warning=FALSE}
+fviz_nbclust(DB2S , kmeans, method = "silhouette")+
+  labs(subtitle = "Silhouette method")
+```
+
+Si procede all'applicazione della seconda metodologia, la Gap Statistic.
+L'obiettivo di tale tecnica è fornire una procedura per formalizzare il metodo euristico del gomito.
+Per individuare il numero ottimale di cluster, si cerca il punto in cui il valore della gap statistic raggiunge il massimo o si stabilizza per la prima volta, che nel caso in esame risulta essere K=9.
+
+```{r message=FALSE, warning=FALSE}
+set.seed(123)
+fviz_nbclust(DB2S , kmeans, nstart=25,method = "gap_stat",nboot=50) +
+  labs(subtitle = "Gap Statistics")
+```
+
+Esiste anche una funzione NBClust che analizza contemporaneamente diverse tecniche di individuazione del numero di cluster e propone come soluzione migliore il numero di cluster proposto dalla maggior parte delle tecniche.
+Nel caso in esame, il numero di cluster restituito dalla funzione è k=5.
+
+```{r message=FALSE, warning=FALSE}
+km <- NbClust(DB2S,distance = "euclidean", min.nc = 2, max.nc = 10, method = "kmeans")
+```
+
+\newpage
+
+# Clusterizzazione Gerarchica: metodo agglomerativo
+
+Il clustering gerarchico è una metodologia di clusterizzazione che costruisce una gerarchia di cluster e può essere di due tipi: agglomerativo o divisivo.
+In questo progetto verrà applicato il clustering gerarchico agglomerativo, con un approccio "Bottom Up", che consiste nell'attribuire inizialmente ogni osservazione a cluster singoli e successivamente raggruparli a coppie formando dei "grappoli" che vengono a loro volta uniti, in base alle criterio di similarità scelto, fino a convergere in un unico grande cluster.
+Tale metodo non presuppone di stabilire un numero di cluster a priori.
+
+Gli algoritmi di clustering gerarchico differiscono tra loro in funzione del metodo scelto per misurare la distanza tra le osservazioni e per il metodo di collegamento scelto per definire e valutare la dissimilarità tra i cluster.
+Si procede con la creazione dell'albero gerarchico utilizzando la funzione "hclust".
+Occorre inoltre stabilire quale metodo utilizzare per raggruppare le coppie di osservazioni in cluster rispetto alla loro similarità.
+Tra i metodi da poter utilizzare troviamo:\newline - *Single linkage method:* la distanza tra due cluster A e B viene definita come la distanza più piccola individuata tra le unità di A e le unità di B;\newline - *Complete linkage method:* la distanza tra due cluster A e B viene definita come la distanza maggiore individuata tra le unità di A e le unità di B;\newline - *Average linkage method*: la distanza tra i cluster A e B viene definita come la media tra le distanze delle unità di A e le unità di B;\newline - *Centroid linkage method:* la distanza tra cluster A e B viene definita come la distanza tra i centri di A e B determinati dai vettori medi campionari (xA e xB).
+Una volta fusi il baricentro del nuovo insieme può essere calcolato in funzione di xA e xB utilizzando la proprietà associativa della media aritmetica; \newline - *Ward's (minimum deviance) method*: basato sulla somma delle deviazioni di ciascuna variabile.
+\newline Il grafico sottostante mostra il dendogramma ottenuto utilizzando il metodo Ward per misurare la distanza.
+
+```{r message=FALSE, warning=FALSE}
+DF_dd <- dist(DB2S, method = "euclidean")
+DF_dd_hc <- hclust(d = DF_dd, method = "ward.D2")
+fviz_dend(DF_dd_hc, cex = 0.2)
+```
+
+Per valutare se la clusterizzazione è appropriata è possibile effettuare la correlazione tra "cophenetic distances", misura di quanto due unità devono essere simili per essere raggruppate nello stesso cluster, e la distanza originale generata dalla funzione "dist()".
+Più il coefficiente di correlazione sarà vicino al valore 1, più il metodo di clusterizzazione sarà efficiente.
+
+```{r message=FALSE, warning=FALSE}
+DF_dd_coph <- cophenetic(DF_dd_hc)
+cor(DF_dd, DF_dd_coph)
+```
+
+Il coefficiente di correlazione non è molto alto, si procede quindi con il calcolare la correlazione in funzione degli altri metodi e valutare quello che offre una migliore rappresentazione dei dati.
+
+```{r message=FALSE, warning=FALSE}
+DF_dd_hc2 <- hclust(d = DF_dd, method = "single") #metodo1
+DF_dd_hc3 <- hclust(d = DF_dd, method = "complete") #metodo2
+DF_dd_hc4 <- hclust(d = DF_dd, method = "mcquitty") #metodo3
+DF_dd_hc5 <- hclust(d = DF_dd, method = "median") #metodo4
+DF_dd_hc6 <- hclust(d = DF_dd, method = "average") #metodo5
+
+DF_dd_coph2 <- cophenetic(DF_dd_hc2) 
+DF_dd_coph3 <- cophenetic(DF_dd_hc3) 
+DF_dd_coph4 <- cophenetic(DF_dd_hc4) 
+DF_dd_coph5 <- cophenetic(DF_dd_hc5) 
+DF_dd_coph6 <- cophenetic(DF_dd_hc6) 
+
+cor(DF_dd, DF_dd_coph2) #correlazione metodo1
+cor(DF_dd, DF_dd_coph3) #correlazione metodo2
+cor(DF_dd, DF_dd_coph4) #correlazione metodo3
+cor(DF_dd, DF_dd_coph5) #correlazione metodo4
+cor(DF_dd, DF_dd_coph6) #correlazione metodo5
+
+```
+
+Alla luce dei risultati si può affermare che l'average linkage method sia il metodo migliore da adottare per la clusterizzazione.
+In grafico seguente mostra il dendogramma ottenuto utilizzando l'average linkage method come metodo di misura della distanza, ed è anche meno sensibile agli outliers rispetto ad altri metodi più comuni.
+
+```{r message=FALSE, warning=FALSE}
+fviz_dend(DF_dd_hc6, cex = 0.2)
+```
+
+La clusterizzazione gerarchica non dà indicazioni in merito al numero di cluster da individuare, si può decidere liberamente dove tagliare l'albero specificando il numero di gruppi desiderati.
+Di seguito un esempio con 9 cluster:
+
+```{r message=FALSE, warning=FALSE}
+grp<- cutree(DF_dd_hc6, k=9)
+table(grp)
+
+fviz_dend(DF_dd_hc6, k = 9, # Cut in four groups
+          cex = 0.5, # label size
+          k_colors = c("#2E9FDF", "#00AFBB", "#E7B800", "#FC4E07","blue","pink",
+                       "green","yellow", "red"),
+          color_labels_by_k = TRUE, # color labels by groups
+          rect = TRUE # Add rectangle around groups
+)
+```
+
+Si vuole individuare il numero ottimale di cluster in cui dividere il dendogramma.
+Tra le metodologie da poter utilizzare si decide di concentrarsi su "elbow method" e "silhouette method".
+
+```{r message=FALSE, warning=FALSE}
+fviz_nbclust(DB2S, hcut, method = "wss")+
+  labs(subtitle = "Elbow method")
+```
+
+Nel caso del metodo di "Elbow" si ottiene un numero di cluster ottimale pari a 5 e le osservazioni sono distribuite nei cluster come nella seguente tabella:
+
+```{r message=FALSE, warning=FALSE}
+grp<- cutree(DF_dd_hc6, k=5)
+table(grp)
+```
+
+Nel caso del metodo di "Silhouette" otteniano un numero di cluster ottimale pari a 7 e le osservazioni sono distribuite come nella tabella seguente:
+
+```{r message=FALSE, warning=FALSE}
+fviz_nbclust(DB2S, hcut, method = "silhouette")+
+  labs(subtitle = "Silhouette method")
+
+```
+
+```{r}
+grp<- cutree(DF_dd_hc6, k=7)
+table(grp)
+```
+
+# Algoritmi di partizione
+
+K-means e K-medoids sono algoritmi che appartengono al gruppo degli algoritmi di partizione.
+In entrambe le metodologie il numero di cluster K si stabilisce a priori.
+
+Il clustering K-Means rappresenta uno dei più diffusi algoritmi di partizionamento utilizzati per l'analisi dei dati.
+L'obiettivo principale di questo algoritmo è suddividere le n unità di dati in K cluster in modo che le unità all'interno dello stesso cluster siano il più simili possibile, garantendo così un'elevata coesione dei cluster, mentre le unità appartenenti a cluster diversi siano il più dissimili possibile, garantendo una elevata separazione tra i cluster.
+Per raggiungere questo obiettivo, l'algoritmo utilizza la somma dei quadrati delle distanze euclidee (WSS) tra i punti assegnati al cluster e la media di quei punti.
+È importante ricordare che il WSS rappresenta una misura della dissimilarità all'interno dei cluster.
+Tale algoritmo seleziona casualmente K centroidi e assegna ciascun punto al cluster del centroide più vicino.
+Successivamente, i centroidi vengono aggiornati iterativamente fino a quando non viene raggiunta una convergenza, minimizzando così il WSS complessivo e producendo i cluster finali.
+Inoltre, il K-means è sensibile agli outliers, a differenza del K-medoids che è più robusto.
+Nei grafici successivi si applica il modello utilizzando come numeri di cluster K=5 e K=9 ottenuti nei paragrafi precedenti.
+
+```{r message=FALSE, warning=FALSE}
+#K=5 
+set.seed(123)
+km.res <- kmeans(DB2S,5,nstart = 25)
+cluster.km.1 <- km.res$cluster
+km.ress <- eclust(DB2S,"kmeans",k=5, nstart=25,graph = FALSE)
+fviz_cluster(km.ress,geom="point", ellipse.type = "norm", palette="jco", ggtheme = theme_minimal())
+```
+
+```{r}
+# K=9
+set.seed(123)
+km.res9 <- kmeans(DB2S,9,nstart = 25)
+
+cluster.km.9 <- km.res9$cluster
+
+km.ress9 <- eclust(DB2S,"kmeans",k=9, nstart=25,graph = FALSE)
+fviz_cluster(km.ress9,geom="point", ellipse.type = "norm", palette="jco", ggtheme = theme_minimal())
+```
+
+E' possibile osservare come con K=9 il 77.7% della variabilità totale dei dati è spiegato dalla distribuzione dei dati tra i cluster rispetto al 68% che si ottiene con K=5.
+Un possibile soluzione è l'adozione del PAM il quale risulta essere meno sensibile agli outliers.
+A differenza del K-means, che utilizza i centroidi, nel clustering K-medoids ogni cluster è rappresentato da uno dei punti dati all'interno del cluster stesso, chiamato medoide del cluster.
+Il termine "medoide" si riferisce a un'unità all'interno di un cluster per cui la dissimilarità media tra questa e tutti gli altri membri del cluster è minima.
+Il medoide orrisponde al punto posizionato più al centro del cluster.
+Queste unità possono essere considerate esempi rappresentativi dei membri del cluster in cui si trovano.
+
+Il PAM (Partitioning Around Medoids) è un algoritmo di clustering il cui obiettivo è di trovare i medoidi dei cluster in modo che la somma delle dissimilarità tra i punti dati e i rispettivi medoidi sia minimizzata.
+L'algoritmo inizia selezionando casualmente K medoidi e quindi assegna iterativamente ciascun punto al medoide più vicino.
+Successivamente, aggiorna i medoidi per minimizzare la somma delle dissimilarità.
+Il processo continua fino a quando non viene raggiunta la convergenza e i medoidi rimangono stabili.
+Il PAM è particolarmente utile quando i dati hanno una struttura non lineare o quando i cluster hanno forme irregolari, poiché utilizza i medoidi che sono punti reali nel dataset.
+Si applica il modello utilizzando come numeri di cluster K=5 e K=9 mostrati nei seguenti pairplot.
+
+```{r message=FALSE, warning=FALSE}
+#K=5
+pam.res5 <- pam(DB2S,5,metric = "euclidean")
+
+clusterPam5 <- pam.res5$clustering
+pairs(DB2S, gap=0, pch=clusterPam5,col=c("#2E9FDF","#00AFBB","#E7B800","#FFE4E1","#FC4E07") )
+```
+
+```{r}
+#K=9
+pam.res9 <- pam(DB2S,9,metric = "euclidean")
+
+clusterPam9 <- pam.res9$clustering
+pairs(DB2S, gap=0, pch=clusterPam9,col=c("#2E9FDF","#00AFBB","#E7B800","#FFE4E1","#FC4E07","#8A2BE2","#FF6347","#32CD32","#FFD700") )
+```
+
+# Cluster validation statistics
+
+La validazione del clustering è fondamentale per garantire che i risultati ottenuti dall'algoritmo di clustering siano affidabili e significativi.
+Ciò implica valutare se i cluster formati dall'algoritmo sono coerenti e rappresentano correttamente le strutture presenti nei dati.
+Esistono diverse tecniche e metriche di validazione del clustering, tra cui l'indice di validità silhouette, l'indice di Dunn, e l'indice Rand.
+Questi strumenti consentono di valutare la coerenza interna dei cluster e confrontare l'efficacia di diversi algoritmi di clustering nell'identificare strutture nei dati.
+Inoltre, la validazione del clustering è importante per evitare il fenomeno dell' overfitting, in cui l'algoritmo di clustering trova pattern casuali nei dati anziché veri raggruppamenti significativi.
+Inoltre consente di confrontare due algoritmi di clustering per determinare quale sia più adatto per un determinato insieme di dati.
+La validazione interna del clustering utilizza le informazioni interne del processo di clustering per valutare la bontà di una struttura di clustering senza fare riferimento a informazioni esterne.
+Può essere utilizzata anche per stimare il numero di cluster e l'algoritmo di clustering appropriato senza alcun dato esterno.
+La validazione esterna del clustering consiste nel confrontare i risultati di un'analisi dei cluster con un risultato noto esternamente, come etichette di classe fornite esternamente.
+Poiché conosciamo il numero "vero" di cluster in anticipo, questo approccio è principalmente utilizzato per selezionare l'algoritmo di clustering corretto per un determinato insieme di dati.
+La validazione relativa del clustering tiene conto di diversi valori dei parametri per lo stesso algoritmo (ad esempio, variando il numero di cluster K).
+
+Nel grafico seguente si valida il metodo della silhouette utilizzando il numero di cluster per il K-means applicato precedentemente per K=5 e K=9.
+
+```{r message=FALSE, warning=FALSE}
+#K=5
+fviz_silhouette(km.ress,palette="jco", ggtheme=theme_classic())
+```
+
+```{r message=FALSE, warning=FALSE}
+#K=9
+fviz_silhouette(km.ress9,palette="jco", ggtheme=theme_classic())
+```
+
+La silhouette per k=5 ha valori medi più alti, indicando una migliore struttura di clustering.
+
+Si procede ad esaminare il Dunn Index.
+Il Dunn Index è una misura di validazione interna utilizzata per valutare la bontà di un clustering.
+Questa misura valuta la coesione all'interno dei cluster e la separazione tra i cluster.
+Un valore più alto del Dunn Index indica una migliore qualità del clustering, con cluster più compatti e ben separati.
+
+```{r message=FALSE, warning=FALSE}
+km5stats <- cluster.stats(dist(DB2S), km.ress$cluster)
+km9stats <- cluster.stats(dist(DB2S), km.ress9$cluster)
+
+km5stats$dunn
+km9stats$dunn
+```
+
+Possiamo osservare come il Dunn Index assumare valori più prossimi a 1 per K=5
+
+La validazione esterna del clustering confronta i risultati con un'annotazione esterna o un insieme di etichette note.
+Questo può essere particolarmente utile quando si ha a disposizione un insieme di dati di riferimento già etichettati, ad esempio, se si sta valutando un algoritmo di clustering supervisionato o si dispone di informazioni di classe esterne.
+L'indice di Rand corretto è una misura che valuta quanto i cluster identificati corrispondano alle etichette di classe note, considerando le associazioni corrette e scorrette tra i cluster e le etichette di classe ed è più attendibile tanto più si avvicina al valore 1.
+L'indice di variazione di Meila è un'altra misura che fornisce una valutazione simile, ma con alcuni adattamenti specifici.
+Questi strumenti di validazione esterna del clustering consentono di valutare quanto bene i cluster identificati rappresentino le strutture presenti nei dati rispetto alle informazioni esterne disponibili, e risulta più efficace tanto più si avvicina a 0.
+Inoltre, forniscono un modo per confrontare l'efficacia di diversi algoritmi di clustering nel contesto specifico del dataset e delle informazioni di riferimento disponibili.
+Facciamo il confronto con la variabile Aree del dataset in esame per i cluster K=5 e K=9.
+
+```{r message=FALSE, warning=FALSE}
+#External validation
+Areee <- as.numeric(olive$Area)
+
+#K=5
+clust_statskm5 <- cluster.stats(d= dist(DB2S), Areee, km.ress$cluster)
+#indice di variazione di Rand
+clust_statskm5$corrected.rand
+#indice di variazione di Meila
+clust_statskm5$vi
+```
+
+```{r message=FALSE, warning=FALSE}
+#K=9
+clust_statskm9 <- cluster.stats(d= dist(DB2S),Areee, km.ress9$cluster)
+#indice di variazione di Rand
+clust_statskm9$corrected.rand
+#indice di variazione di Meila
+clust_statskm9$vi
+```
+
+I risultati di entrambi gli indici applicati mostrano che il clustering con K-means sembrano avere prestazioni migliori con numero di cluster pari a 5..
+
+Infine applichiamo in metodi relativi di cluster validation su diversi algoritmi per ottenere ulteriori informazioni in merito alla bontà del modello.
+
+```{r message=FALSE, warning=FALSE}
+rownames(DB2S) <- rownames(olive)
+
+metodi <- c("hierarchical", "kmeans", "pam")
+intern <- clValid(DB2S, nClust= 5:9., clMethods=metodi, validation= "internal")
+summary(intern)
+```
+
+```{r message=FALSE, warning=FALSE}
+
+stab <- clValid(DB2S, nClust= 5:9., clMethods=metodi, validation= "stability")
+summary(stab)
+```
+
+Nella seguente tabella sono riportati i valori di:
+
+-   APN (Average Proximity to Nearest): Misura della distanza media tra ciascun punto e il suo punto più vicino nel cluster.
+
+-   AD (Average Diameter): Misura del diametro medio dei cluster, ovvero la massima distanza tra coppie di punti nello stesso cluster.
+
+-   ADM (Average Distance between Means): Misura della distanza media tra i centroidi dei cluster.
+
+-    FOM (Figure of Merit): Misura della somiglianza tra i cluster rispetto alla similarità attesa se i dati fossero distribuiti casualmente.
+
+Tutte le analisi condotte, portano a scegliere come miglior numero di cluster, K=5.
+
+\newpage
+
+## Modelli di Mistura Gaussiana
+
+I modelli di mistura gaussiana (GMM) rappresentano una forma di clustering basata su modelli che forniscono una probabilità di appartenenza a ciascun cluster.
+A differenza dei modelli di clustering come il K-means, i GMM identificano automaticamente il numero ottimale di cluster e consentono di raggruppare una più ampia varietà di forme e orientamenti di cluster.
+I GMM sono sensibili agli outliers.
+Per utilizzare i GMM si assume la normalità multivariata dei dati.
+Si utilizza il pacchetto mclust che verrà utilizzato per applicare i modelli GMM ai dati.
+Si applica la funzione Mclust che stima automaticamente il miglior modello di mistura gaussiana in base ai dati forniti.
+
+```{r message=FALSE, warning=FALSE}
+#fit del modello GMM utilizzando la funzione Mclust
+gmm <- mclust::Mclust(data = DB2S,  verbose = FALSE)
+summary(gmm)
+```
+
+La tabella di clustering mostra il numero di osservazioni assegnate a ciascun cluster.
+L' output rivela 9 cluster con 29, 93, 80, 121, 67, 31, 43, 60, 48, data points, rispettivamente.
+Il termine "VVE" sta per "Varianza-equal shape" (varianza con forma uguale), e si riferisce a uno dei modelli di clustering forniti dai modelli GMM.
+Il modello VVE cerca di raggruppare le osservazioni in cluster in base alla loro somiglianza, assumendo che ciascun cluster abbia una forma ellissoidale e che le ellissi abbiano dimensioni uguali ma orientamenti diversi.
+Dalla tabella in output i parametri restituiti che misurano il fit del modello sono:
+
+-   Log-likelihood (Verosimiglianza): Misura la verosimiglianza dei dati osservati sotto il modello stimato. Un valore maggiore di log-likelihood indica un miglior adattamento del modello ai dati.
+-   n, Numero di osservazioni: Indica il numero totale di osservazioni nel dataset.
+-   df, Gradi di libertà: Rappresenta il numero di parametri stimati meno le restrizioni del modello. In un modello VVE, i gradi di libertà includono il numero di medie, varianze e probabilità di appartenenza ai cluster.
+-   BIC (Bayesian Information Criterion): È un criterio di selezione del modello che penalizza i modelli con un numero maggiore di parametri. Valori più bassi di BIC indicano una migliore adattabilità del modello. Nel package utilizzato Mclust, BIC ha segno negativo.
+-   ICL (Integrated Completed Likelihood): È un altro criterio di selezione del modello simile a BIC ma è specificamente sviluppato per modelli di mistura gaussiana. Come BIC, valori più bassi di ICL indicano una migliore adattabilità del modello.
+
+Il seguente grafico mostra come il BIC cambia al variare di K (il numero di componenti nei modelli GMM).
+I modelli migliori sono quelli in cui il valore del BIC (Bayesian Information Criterion) è più basso (in valore assoluto).
+Questo indica che il modello è più parsimonioso e che si adatta meglio ai dati e ha una migliore capacità di generalizzazione.
+
+```{r message=FALSE, warning=FALSE}
+# Grafico valore Bic in funzione del numero di cluster
+gmm_BIC <- matrix(gmm$BIC, nrow = dim(gmm$BIC)[1], ncol = dim(gmm$BIC)[2]) %>% 
+  data.frame() %>% 
+  add_column(K = 1:9, .before=-1)
+
+colnames(gmm_BIC) <- c("K", colnames(gmm$BIC))
+
+gmm_BIC %>% 
+  gather(key = "Model", value = "BIC", -K) %>% 
+  filter(!is.na(BIC)) %>% 
+  ggplot(aes(x = K, y = BIC, col = Model)) +
+    geom_line(size=0.55) +
+    geom_point() +
+    scale_color_manual(values = c("red", "blue", "green", "purple", "yellow", "cyan",
+                                  "magenta", "black", "darkblue", "grey", "pink", 
+                                  "orange", "darkgreen", "darkred" )) +
+    scale_x_continuous(breaks = 1:9, minor_breaks = NULL) +
+    labs(title = "Gaussian Mixture Models vs Cluster Number",
+         subtitle = "Grafico BIC per modelli GMM",
+         x = "Numero di Componenti") +
+    theme_light()
+```
+
+La funione mclustBIC calcola i BIC per ogni modello e per ogni cluster.
+Dall' output si osserva che in base al criterio BIC si possono selezionare 3 modelli migliori, che corrispondono ai VVE che il modello aveva calcolato precedentemente con numeri di cluster preferibili da 7 a 9.
+
+```{r}
+#bic per cluster e modello.
+bic_values <- mclustBIC(data=DB2S, G=2:9)  
+bic_values
+
+```
+
+Nel grafico seguente si può osservare graficamente il risultato del clustering ottenuto.
+Le ellissi mostrano la forma approssimativa dei cluster individuati dal modello.
+I punti sono raggruppati per colore in base alla classificazione attribuita loro dal modello di clustering.
+Ogni colore rappresenta una diversa classe assegnata.
+Aggiungendo la funzione addEllipses = TRUE, verranno disegnate le ellissi che rappresentano la forma e l'orientamento delle distribuzioni gaussiane che approssimano i cluster individuati dal modello.
+Queste ellissi aiutano a visualizzare la struttura del cluster e la loro distribuzione.
+
+```{r}
+#visualizzare graficamente come le osservazioni sono distribuite nei diversi cluster.
+plot.Mclust(gmm, what = c("classification"), dimens = NULL, xlab = NULL, ylab = NULL, 
+            addEllipses = TRUE)
+  title("Distribuzione dei diversi cluster in funzione delle variabili", line= 3.35)
+```
+
+Il grafico seguente mostra la suddivisione in cluster ottenuta utilizzando il modello di mistura gaussiana.
+
+```{r}
+fviz_cluster(gmm,geom="point", ellipse.type = "norm", palette="jco", ggtheme = theme_minimal())
+```
+
+# Confusion Matrix
+
+Infine, calcoliamo la confusion matrix per il sistema scelto confrontando i true labels e i predicted labels.
+
+```{r warning=FALSE}
+# definizione true e predicted labels
+predicted_labels <-  gmm$classification
+true_labels <- olive$Area
+# Calcolo matrice di confusione
+confusion_matrix <- table(true_labels, predicted_labels)
+
+# Stampa la matrice di confusione
+print(confusion_matrix)
+```
+
+Le metriche di Precision e Recall vengono calcolate per valutare il modello applicato considerando la clusterizzazione.
+I valori presi in considerazione sono le medie di Precision e Recall calcolate per ciascun cluster.
+Queste misure rappresentano la performance media del modello rispetto a tutte le classi, fornendo un'indicazione generale di quanto bene il modello sia in grado di predire le diverse classi.
+
+Per ottenere una visione completa delle prestazioni del modello, si confronta l'andamento di queste metriche congiuntamente.
+Se ci si focalizza sui valori di queste metriche calcolati per ogni classe si può dire che nel caso delle classi 1-2, un valore alto di Precision e basso di Recall potrebbero indicare che il modello effettua poche predizioni positive, ma corrette.
+Viceversa, un alto valore di Recall e una bassa Precision (ad esempio, per la classe 3) potrebbero indicare che il modello è più incline a fare molte predizioni positive, anche se alcune di esse potrebbero essere errate.S e invece i valori di Precision e Recall sono simili e si avvicinano a 1, allora la predizione del modello rispetto al caso reale è molto vicina, e il numero di falsi positivi (per la Precision) e falsi negativi (per la Recall) è molto basso (ad esempio, per le classi 5-6).
+Infine, nei casi in cui entrambi i valori si avvicinano a 0, il modello predice in modo sbagliato rispetto al caso reale (ad esempio, per le classi 4-8-9).
+
+Nel caso generale che tiene conto della media di questi valori, entrambi inferiori al 50%, si può dedurre che il valore di falsi positivi (nella Precision) e di Falsi Negativi (nella Recall), sono molto alti e quindi in media riducono di più del 50% le predizioni corrette rispetto al caso reale.
+
+```{r}
+# METRICHE
+# True positives (TP), false positives (FP) e false negatives (FN) per ogni classe
+TP <- diag(confusion_matrix)  # Elementi diagonali della matrice di confusione
+FP <- rowSums(confusion_matrix) - TP  
+FN <- colSums(confusion_matrix) - TP
+
+# Precision e recall per ogni classe
+precision <- TP / (TP + FP)
+recall <- TP / (TP + FN)
+
+# Medie di precision e recall su tutte le classi:
+mean_precision <- mean(precision)
+mean_recall <- mean(recall)
+
+for (i in 1:length(precision)) {
+  cat("Classe", i, "- Precision:", precision[i], "Recall:", recall[i], "\n")
+}
+
+cat("Media Precision:", mean_precision, "Media Recall:", mean_recall, "\n")
+```
+
+# Linear Discriminant analisys (LDA)
+
+Questa metodologia di clustering parte dall'assunzione che i cluster siano noti.
+Si parte da oggetti già classificati (in questo caso si utilizzaerà la variabile target Region), e si cerca una regola per poterli discriminare, attraverso una separazione supervisionata.
+In generale, l'analisi discriminante lineare sfrutta la potenza della riduzione della dimensionalità per migliorare l'accuratezza della classificazione.
+Partendo dalle distribuzioni di probabilità a priori delle varabili esplicative si estrapolano i valori in cui queste distribuzioni si intersecano e si assegnano i valori in base al massimo valore della funzione: \begin{equation}
+\delta(x)_k = ln(\pi _k) + x' \Sigma \mu_k - \frac{1}{2} \mu'_k \Sigma \mu_k
+\end{equation}
+
+dove $x$ definisce l'insieme delle varabili epslicative, e $\delta(x)_k$ è una funzione lineare (matrice) di x.
+La superifice di separazione dei cluster sono definite da punti, rette o piano in base al numero di variabili esplicative, e nel caso specifico sarà un iperpiano.
+
+Di seguito vengono riportati i valori estratti dall'analisi dell'LDA sui dati, in cui la variabile riposta è data dalla colonna Region nel dataset, che indica le tre aree in cui sono stati estratti i dati.
+Questo metodo non necessita la standardizzazione dei dati, pertanto si utilizza il dataset orginale per il fitting.
+
+```{r}
+#LDA FIT 
+olive2 <- subset(olive, select = -Area)
+olive2$Region<-as.factor(olive2$Region)
+
+N<-nrow(olive2)
+lda.fit=lda(Region~., data=olive2)
+lda.fit
+```
+
+L'output "Proportion of Trace" identifica le due migliori funzioni discriminanti LD1 e LD2 i cui valori che identificano la percentuale di separazione ottenuta da ciascuna funzione discriminante sono rispettivamente 0.7853 e 0.2147.
+
+Ad esempio, la prima funzione discriminante LD1, ad esempio, è una combinazione lineare delle variabili esplicative ed è descritta dai coefficienti lineari dei discriminanti: $-0.0027*Palmatic -0.0128*Pamitoleic- ... -0.163*Elicosenoic$
+
+Viene valutata la matrice di confusione per calcolare l'accuratezza, che risulta essere del $99.12\%$, nel clustering dei dati.
+
+```{r}
+#Confusion Matrix
+lda.pred=predict(lda.fit, olive2)
+lda.class=lda.pred$class
+table(olive2$Region,lda.class)
+#Calcolo Accuratezza
+accuracy.LDA<-sum(diag(table(lda.class,olive2$Region)))/nrow(olive)*100
+accuracy.LDA
+
+```
+
+Il grafico successivo mostra lo scatterplot dei valori delle due funzioni LDA1 e LD2 separatamente.
+
+```{r message=FALSE, warning=FALSE}
+library(ggplot2)
+x<- 1:length(lda.pred$x[,1])
+
+par(mfrow=c(1,2))
+plotdata=data.frame(x,lda.pred$x[,1])
+plotdata2=data.frame(x,lda.pred$x[,2])
+attach(plotdata)
+attach(plotdata2) 
+
+ggplot(data = plotdata,
+       mapping = aes(x =x, y =lda.pred.x...1.,
+                     color = Region)) +
+  geom_point(alpha = .5, size = 2)+
+ labs(title = "Clustering attraverso LDA1",
+      x = "Dati", y = "LDA1")
+```
+
+```{r message=FALSE, warning=FALSE}
+
+ggplot(data = plotdata2,
+       mapping = aes(x =x, 
+                     y =lda.pred.x...2.,
+                     color = Region)) +
+  geom_point(alpha = .5,size = 2)+
+ labs(title = "Clustering attraverso LDA2",
+   x = "Dati", y = "LDA2")
+```
+
+I dati sono ben suddivisi in base alla regione considerata.
+Infatti si può vedere come la prima funzione discriminante LDA1 separi perfettamente la regione 1 dalle regioni 2 e 3 ma non perfettamente la regione 2 dalla 3.
+La seconda funzione discriminate LD2 performa una buona separazione della regione 1 e 2 dalla regione 3 e una discreta separazione tra regione 1 e 2.
+Per questo motivo per ottenere un'ottima separazione in base alle regioni è oppurtuno utilizzare tutte e due le funzioni discriminanti contemporaneamente.
+Tuttavia, alla base dell'applicazione di questa analisi, c'è un'importante ipotesi che deve essere rispettata.
+Le variabili esplicative devono rispettare l'ipotesi di omoschedasticità ( $\sigma_1 ^2 = \sigma_2 ^2=....=\sigma_k ^2 = \sigma ^2$).
+Dall'analisi esplorativa prima effettuata si è riscontrato che questa ipotesi non è rispettata.
+Conducendo ugualmente l'analisi si è visto che comunque i tre cluster sono ben separati dalla due LDA, e questa buona suddivisione compensa la presenza di eteroschedasticità nei dati.
+
+## Analisi su Train e Test
+
+Una scelta più accurata ai fini della validazione del modello richiede l'analisi su un set di Train e di Test.
+
+Per prima cosa si effettua lo splitting del dataset in test e train.
+
+```{r message=FALSE, warning=FALSE}
+set.seed(1500)
+trainIndex <- createDataPartition(olive2$Region, p = 0.7, list = FALSE, times = 1)
+# Dataset di train
+olive_train<-olive2[trainIndex,]
+# Dataset di test
+olive_Test<-olive2[-trainIndex,]
+
+table(olive_train$Region)/nrow(olive_train)*100
+table(olive_Test$Region)/nrow(olive_Test)*100 
+```
+
+Su questi due dataset viene applicato il fit con il modello LDA separatamente:
+
+```{r message=FALSE, warning=FALSE}
+#LDA per Train set
+lda.fit_train=lda(Region ~ ., data=olive_train)  
+lda.predict_train=predict(lda.fit_train,olive_train)
+pred.class_train=lda.predict_train$class
+confMat.LDA_train=table(olive_train$Region,pred.class_train)
+confMat.LDA_train
+accuracy.LDA_train<-sum(diag(confMat.LDA_train))/nrow(olive_train)*100
+```
+
+```{r message=FALSE, warning=FALSE}
+#LDA per Test set
+lda.predict_Test=predict(lda.fit_train,olive_Test)
+pred.class_Test=lda.predict_Test$class
+confMat.LDA_Test=table(olive_Test$Region,pred.class_Test)
+confMat.LDA_Test
+accuracy.LDA_Test<-sum(diag(confMat.LDA_Test))/nrow(olive_Test)*100
+```
+
+```{r}
+#Accuratezza test
+accuracy.LDA_Test
+#Accuratezza train
+accuracy.LDA_train
+```
+
+L'accuratezza ottenuta ottenuta sul Test set (99.41),molto simile a quella del Train set (98.75), ha convalidato la capacità di generalizzazione del modello, fornendo previsioni accurate sui dati.
+
+# **Conclusione**
+
+L'obiettivo principale è stato utilizzare un dataset open source fornito dal software R per fornire una panoramica descrittiva su una vasta gamma di argomenti per arricchire la nostra comprensione nell'ambito del clustering.
+Abbiamo inizialmente effettuato un'analisi descrittiva del dataset, seguita dall'applicazione di diverse tecniche di clustering e metodi di valutazione per l'implementazione dei modelli.
+Abbiamo utilizzato la PCA per studiare la possibilità di ridurre dimensionalità dei dati e successivamente abbiamo esaminato diverse misure di distanza tra i cluster, come Elbow, Silhouette, distanza euclidea, ecc.
+Per quanto riguarda gli algoritmi di clustering, abbiamo impiegato il Clustering agglomerativo, K-Means, PAM, Gaussian Mixture Model e Linear Discriminant Analysis.
+Abbiamo prestato particolare attenzione alla validazione del numero di cluster selezionato e all'efficacia dei modelli applicati.
+Va notato che non tutti i modelli e le tecniche hanno prodotto risultati congruenti.
+Infatti, abbiamo privilegiato l'esplorazione e l'approfondimento delle nostre conoscenze, piuttosto che concentrarci esclusivamente sui risultati.
