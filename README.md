@@ -23,7 +23,7 @@ All projects and their documentation are in Italian. The programming languages u
 
 *- Fashon MNIST Dataset:* Multiclass classification using the Fashion MNIST dataset, which involves classifying clothing items based on image recognition using neural networks.
 
-*- Sviluppo di un Software per la Gestione delle Emissioni di Pagamento dell'IRAP:* Development of a software application designed to manage the issuance and processing of IRAP (Regional Tax on Productive Activities) payments.
+*- Sviluppo di un Software per la Gestione delle Emissioni di Pagamento dell'IRAP:* Development of a software application (OOP) designed to manage the issuance and processing of IRAP (Regional Tax on Productive Activities) payments.
 
 *- Analisi sulla qualità dell'acqua:* Analysis of a classification problem based on the study of chemical properties of water using decision trees, Random Forest and Boosting.
 
